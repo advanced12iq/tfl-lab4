@@ -4,6 +4,38 @@ import random
 import string
 sys.setrecursionlimit(10000)
 
+class Concat:
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+
+class Alt:
+    def __init__(self, left, right):
+        self.left = left
+        self.right = right
+
+class Group:
+    def __init__(self, node, group_index):
+        self.stared = False
+        self.node = node
+        self.group_index = group_index
+
+class BackRef:
+    def __init__(self, group_num):
+        self.group_num = group_num
+
+class GroupExprRef:
+    def __init__(self, group_num):
+        self.group_num = group_num
+
+class Letter:
+    def __init__(self, char):
+        self.char = char
+
+class GroupNumberStub:
+    def __init__(self, num):
+        self.num = num
+
 
 def isNT(symbol : str) -> bool:
     return symbol[0] == '['
@@ -38,7 +70,7 @@ class Grammar():
                                     ['[rg]', '|', '[rg]'], 
                                     ['(', '[rg]', ')'], 
                                     ['(', '?', ':', '[rg]', ')'],
-                                    ['(', '[num]', ')'],
+                                    ['(', '?', '[num]', ')'],
                                     ['[rg]', '*'],
                                     ['[l]'],
                                     ['\\', '[num]']]
@@ -48,9 +80,8 @@ class Grammar():
         self.updateGrammar()
     
     
-    def prepareForGeneration(self):
+    def prepareForParsing(self):
         self.HNFTransform()
-        self.makeBigramms()
         self.prepareForCYK()
 
 
@@ -227,86 +258,19 @@ class Grammar():
         self.updateGrammar()
 
     def printGrammar(self):
-        for NT, rightRule in self.rules:
-            print(NT, '- >', "".join(rightRule))
+        for i, (NT, rightRule) in enumerate(self.rules):
+            print(f'{i} ' + NT, '- >', "".join(rightRule))
 
-
-    def makeBigramms(self):
-        self.makeFirstAndLast()
-        self.makeFollow()
-        self.makePrecede()
-        self.useConditions()
-
-    
-    def makeFirstAndLast(self):
-        visited = set([])
-        for NT in self.allNTs:
-            if NT not in visited:
-                self.makeFirstAndLastRecursion(NT, visited)
-
-    
-    def makeFirstAndLastRecursion(self, NT, visited):
-        visited.add(NT)
-        for rightRule in self.NT_To_Rules[NT]:
-            if isNT(rightRule[0]):
-                if rightRule[0] not in visited:
-                    self.makeFirstAndLastRecursion(rightRule[0], visited)
-                self.first[NT] = self.first[NT].union(self.first[rightRule[0]])
-            else:
-                self.first[NT].add(rightRule[0])
-            if isNT(rightRule[-1]):
-                if rightRule[-1] not in visited:
-                    self.makeFirstAndLastRecursion(rightRule[-1], visited)
-                self.last[NT] = self.last[NT].union(self.last[rightRule[-1]])
-            else:
-                self.last[NT].add(rightRule[-1])
-
-    
-    def makeFollow(self):
-        changed = True
-        while changed:
-            changed = False
-            for NT, rightRule in self.rules:
-                if len(rightRule) > 1:
-                    if not all(map(lambda terminal: terminal in self.follow[rightRule[0]], self.first[rightRule[1]])):
-                        changed = True
-                    self.follow[rightRule[0]] = self.follow[rightRule[0]].union(self.first[rightRule[1]])
-
-    
-    def makePrecede(self):
-        changed = True
-        while changed:
-            changed=False
-            for NT, rightRule in self.rules:
-                if len(rightRule) > 1:
-                    if not all(map(lambda terminal: terminal in self.precede[rightRule[1]], self.last[rightRule[0]])):
-                        changed=True
-                    self.precede[rightRule[1]] = self.precede[rightRule[1]].union(self.last[rightRule[0]])
-
-    
-    def makeFollowNT(self):
-        for _, rightRule in self.rules:
-            if len(rightRule) == 2:
-                self.followNT[rightRule[0]].add(rightRule[1])
-
-    
-    def useConditions(self):
-        for NT, gammas in self.last.items():
-            for y1 in gammas:
-                for y2 in self.follow[NT]:
-                    self.bigramms[y1].add(y2)
-
-        for NT, gammas in self.precede.items():
-            for y1 in gammas:
-                for y2 in self.first[NT]:
-                    self.bigramms[y1].add(y2)
-
-        for NT, val in self.followNT.items():
-            for A2 in val:
-                for y1 in self.last[NT]:
-                    for y2 in self.first[A2]:
-                        self.bigramms[y1].add(y2)
-    
+    def printForCYK(self):
+        print('T rules')
+        for (NT, rightRules) in self.NT_To_T_Rules.items():
+            for i, rule in enumerate(rightRules):
+                print(f'{i} {NT} - > {"".join(rule)}')
+        print('\nNT rules')
+        for (NT, rightRules) in self.NT_To_NT_Rules.items():
+            for i, rule in enumerate(rightRules):
+                print(f'{i} {NT} - > {"".join(rule)}')
+            
 
     def prepareForCYK(self):
         for NT, rightRule in self.rules:
@@ -315,67 +279,197 @@ class Grammar():
             else:
                 self.NT_To_NT_Rules[NT].append(rightRule)
 
-
-    def CYK(self, word):
+    
+    def CYKforAST(self, word):
         d= {NT : [[False for _ in range(len(word))] for _ in range(len(word))] for NT in self.allNTs}
+        nodes = {NT : [[None for _ in range(len(word))] for _ in range(len(word))] for NT in self.allNTs}
         for i in range(len(word)):
             for NT, rightRules in self.NT_To_T_Rules.items():
                 for rightRule in rightRules:
                     if word[i] == rightRule:
                         d[NT][i][i]= True
+                        if NT == '[num]':
+                            nodes[NT][i][i] = GroupNumberStub(int(word[i]))
+                        elif NT == '[rg]':
+                            nodes[NT][i][i] = Letter(word[i])
+                        
         for m in range(1, len(word)):
             for i in range(len(word) - m):
                 j = i + m
                 for NT, rightRules in self.NT_To_NT_Rules.items():
-                    answer = False
-                    for rightRule in rightRules:
+                    for ruleNumber, rightRule in enumerate(rightRules):
                         for k in range(i, j):
-                            answer = answer or (d[rightRule[0]][i][k] and d[rightRule[1]][k+1][j])
-                    d[NT][i][j] = answer
-        return d[self.startingNT][0][len(word)-1]
-    
+                            if d[rightRule[0]][i][k] and d[rightRule[1]][k+1][j]:
+                                d[NT][i][j] = True
+                                # ПОШЕЛ МЕГАХАРДКОД
+                                if NT == '[rg]':
+                                    if ruleNumber == 0:
+                                        nodes[NT][i][j] = Concat(nodes[rightRule[0]][i][k], nodes[rightRule[1]][k+1][j])
+                                    elif ruleNumber == 1:
+                                        nodes[NT][i][j] = Alt(nodes[rightRule[0]][i][k], nodes[rightRule[1]][k+1][j])
+                                    elif ruleNumber == 2:
+                                        nodes[NT][i][j] = Group(nodes[rightRule[1]][k+1][j], 0)
+                                    elif ruleNumber == 3:
+                                        nodes[NT][i][j] = Group(nodes[rightRule[1]][k+1][j], -1)
+                                    elif ruleNumber == 4:
+                                        nodes[NT][i][j] = GroupExprRef(nodes[rightRule[1]][k+1][j].num)
+                                    elif ruleNumber == 5:
+                                        nodes[rightRule[0]][i][k].stared = True
+                                        nodes[NT][i][j] = nodes[rightRule[0]][i][k]
+                                    else:
+                                        nodes[NT][i][j] = BackRef(nodes[rightRule[1]][k+1][j].num)
+                                elif NT in ['[new_NT_[rg]1]', '[new_NT_[rg]3]', '[new_NT_[new_NT_[rg]3]4]', '[new_NT_[rg]6]']:
+                                    nodes[NT][i][j] = nodes[rightRule[1]][k+1][j]
+                                else:
+                                    nodes[NT][i][j] = nodes[rightRule[0]][i][k]
+        return d[self.startingNT][0][len(word)-1], nodes[self.startingNT][0][len(word)-1]
 
-    def generate(self, 
-                 n=100, 
-                 testing=True, 
-                 allTerminals=True, 
-                 randomTerminalChance=0.1, 
-                 randomStopChance=0.15):
-        assert randomTerminalChance + randomStopChance <= 1, "Chances must sum up to 1!"
 
-        terminals = list(self.terminals.copy())
-        if allTerminals:
-            terminals = string.ascii_lowercase
+class CyclicError(Exception):
+    pass
 
-        startingTerminals = list(self.first[self.startingNT])
-
-        if testing:
-            verifyFile = open("verify_file.txt", 'w')
-            positiveGenerations = []
-
-        with open("tests.txt", 'w') as f:
-            for i in range(n):
-                current = random.choice(startingTerminals)
-                while self.bigramms[current[-1]]:
-                    r = random.random()
-                    if r < randomTerminalChance:
-                        current += random.choice(terminals)
-                    elif r < randomTerminalChance + randomStopChance:
-                        break
-                    else:
-                        current += random.choice(list(self.bigramms[current[-1]]))
-                belongsToLanguage = self.CYK(current)
-                f.write(f'{current} {1 if belongsToLanguage else 0}\n')
-                if testing:
-                    verifyFile.write(f'{current}\n')
-                    if belongsToLanguage:
-                        positiveGenerations.append(str(i+1))
+class AST:
+    def __init__(self, regexp, grammar : Grammar):
+        self.root = None
+        self.grammar = grammar
+        self.regexp = regexp
+        self.groups = {}
+        self.opened = set([])
+        self.CFG = defaultdict(list)
+        self.getAST()
+        self.reindexGroups()
+        self.checkIfValid()
         
-        if testing:
-            print(' '.join(positiveGenerations))
+        
+
+
+    def getAST(self):
+        valid, root = self.grammar.CYKforAST(self.regexp)
+        if not valid:
+            raise ValueError(f"{self.regexp} PARSING ERROR")
+        else:
+            self.root = root
+            
+
+
+    def reindexGroups(self):
+        self.count = 1
+        self.reindexGroupsRecursion(self.root)
+
+
+    def reindexGroupsRecursion(self, root):
+        if isinstance(root, Group):
+            if root.group_index == 0:
+                root.group_index = self.count
+                self.groups[self.count] = root.node
+                self.count += 1
+            self.reindexGroupsRecursion(root.node)
+        elif isinstance(root, (Concat, Alt)):
+            self.reindexGroupsRecursion(root.left)
+            self.reindexGroupsRecursion(root.right)
+    
+
+    def print_ast(self, node, indent=0):
+        pre = "  " * indent
+        if isinstance(node, Concat):
+            print(pre + "Concat")
+            self.print_ast(node.left, indent+1)
+            self.print_ast(node.right, indent+1)
+        elif isinstance(node, Alt):
+            print(pre + "Alt")
+            self.print_ast(node.left, indent+1)
+            self.print_ast(node.right, indent+1)
+        elif isinstance(node, Group):
+            if node.stared:
+                print(pre + 'Star')
+                indent += 1
+                pre += '  '
+            print(pre + f"Group #{node.group_index}")
+            self.print_ast(node.node, indent+1)
+        elif isinstance(node, BackRef):
+            print(pre + f"BackRef -> group {node.group_num}")
+        elif isinstance(node, GroupExprRef):
+            print(pre + f"GroupExprRef -> group {node.group_num}")
+        elif isinstance(node, Letter):
+            if node.char == '':
+                print(pre + "ε (empty)")
+            else:
+                print(pre + f"Letter '{node.char}'")
+        elif isinstance(node, GroupNumberStub):
+            print(pre + f"GroupNumberStub({node.num})")
 
     
-    def test(self):
-        lines = sys.stdin.readlines()
-        for line in lines:
-            print(f'{line.strip()}  {self.CYK(line.strip())}')
+    def checkIfValid(self):
+        try:
+            self.valid(self.root, set([]), set([]))
+            print(f'{self.regexp} OK')
+            self.printCFG()
+        except:
+            print(f'{self.regexp} ERROR')
+
+
+    def valid(self, root, opened, closed):
+        if isinstance(root, Concat):
+            new_closed = self.valid(root.left, opened, closed)
+            return self.valid(root.right, opened, new_closed)
+        elif isinstance(root, Alt):
+            try:
+                l_closed = self.valid(root.left, set(opened), set(closed))
+            except CyclicError:
+                r_closed  = self.valid(root.right, set(opened), set(closed))
+                return r_closed
+            else:
+                try:
+                    r_closed = self.valid(root.right, set(opened), set(closed))
+                except CyclicError:
+                    return l_closed
+                else:
+                    new_closed = l_closed.intersection(r_closed)
+                    return new_closed
+        elif isinstance(root, Group):
+            new_closed = self.valid(root.node, opened, closed)
+            if not root.stared:
+                return closed.union(new_closed, set([root.group_index]))
+            return closed
+        elif isinstance(root, BackRef):
+            if root.group_num not in closed:
+                raise ValueError
+            return closed
+        elif isinstance(root, GroupExprRef):
+            if root.group_num in opened:
+                raise CyclicError
+            if root.group_num not in self.groups:
+                raise ValueError
+            return self.valid(self.groups[root.group_num], opened.union(set([root.group_num])), closed)
+        elif isinstance(root, Letter):
+            return closed
+    
+
+    def makeCFG(self, root):
+        if isinstance(root, Group):
+            rules = self.makeCFG(root.node)
+            if root.stared:
+                for i in range(len(rules)):
+                    rules.append(rules[i] + [f'G{root.group_index}'])
+            self.CFG[f'G{root.group_index}'] =  rules
+            return [[f'G{root.group_index}']]
+        elif isinstance(root, Concat):
+            leftPart = self.makeCFG(root.left)
+            rightPart = self.makeCFG(root.right)
+            rules = []
+            for left in leftPart:
+                for right in rightPart:
+                    rules.append(left + right)
+            return rules
+        elif isinstance(root, Alt):
+            return self.makeCFG(root.left) + self.makeCFG(root.right)
+        elif isinstance(root, (BackRef, GroupExprRef)):
+            return [[f'G{root.group_num}']]
+        elif isinstance(root, Letter):
+            return [[root.char]]
+    
+    
+    def printCFG(self):
+        print(f'S -> {'|'.join(map(lambda seq: "".join(seq), self.makeCFG(self.root)))}')
+        for NT, rightRules in self.CFG.items():
+            print(f'{NT} -> {'|'.join(map(lambda seq: "".join(seq), rightRules))}')

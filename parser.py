@@ -463,8 +463,12 @@ class AST:
             return rules
         elif isinstance(root, Alt):
             return self.makeCFG(root.left) + self.makeCFG(root.right)
-        elif isinstance(root, (BackRef, GroupExprRef)):
-            return [[f'G{root.group_num}']]
+        elif isinstance(root, GroupExprRef):
+            self.CFG[f'R{root.group_num}'] = [[f'G{root.group_num}']]
+            return [[f'R{root.group_num}']]
+        elif isinstance(root, BackRef):
+            self.CFG[f'B{root.group_num}'] = [[f'G{root.group_num}']]
+            return [[f'B{root.group_num}']]
         elif isinstance(root, Letter):
             return [[root.char]]
     

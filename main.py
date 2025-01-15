@@ -24,7 +24,8 @@ def main():
         "(a|(bb))(a|(?3))",
         "(a|(?2))(a|(bb\\1))",
         "(a(?1)b|c)",
-        "(a(?1)a)"
+        "(a(?1)a)",
+        "(?:a(?:b(c)))(?1)"
     ]
     for word in regex_list:
         ast = AST(word, grammar)

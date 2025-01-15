@@ -15,10 +15,11 @@ class Alt:
         self.right = right
 
 class Group:
-    def __init__(self, node, group_index):
+    def __init__(self, node, counted_group, group_index=None):
         self.stared = False
         self.node = node
         self.group_index = group_index
+        self.counted_group = counted_group
 
 class BackRef:
     def __init__(self, group_num):
@@ -308,9 +309,9 @@ class Grammar():
                                     elif ruleNumber == 1:
                                         nodes[NT][i][j] = Alt(nodes[rightRule[0]][i][k], nodes[rightRule[1]][k+1][j])
                                     elif ruleNumber == 2:
-                                        nodes[NT][i][j] = Group(nodes[rightRule[1]][k+1][j], 0)
+                                        nodes[NT][i][j] = Group(nodes[rightRule[1]][k+1][j], True)
                                     elif ruleNumber == 3:
-                                        nodes[NT][i][j] = Group(nodes[rightRule[1]][k+1][j], -1)
+                                        nodes[NT][i][j] = Group(nodes[rightRule[1]][k+1][j], False)
                                     elif ruleNumber == 4:
                                         nodes[NT][i][j] = GroupExprRef(nodes[rightRule[1]][k+1][j].num)
                                     elif ruleNumber == 5:
@@ -353,16 +354,20 @@ class AST:
 
 
     def reindexGroups(self):
-        self.count = 1
+        self.Gcount = 1
+        self.Ncount = 1
         self.reindexGroupsRecursion(self.root)
 
 
     def reindexGroupsRecursion(self, root):
         if isinstance(root, Group):
-            if root.group_index == 0:
-                root.group_index = self.count
-                self.groups[self.count] = root.node
-                self.count += 1
+            if root.counted_group:
+                root.group_index = self.Gcount
+                self.groups[self.Gcount] = root.node
+                self.Gcount += 1
+            else:
+                root.group_index = self.Ncount
+                self.Ncount += 1
             self.reindexGroupsRecursion(root.node)
         elif isinstance(root, (Concat, Alt)):
             self.reindexGroupsRecursion(root.left)
@@ -384,7 +389,10 @@ class AST:
                 print(pre + 'Star')
                 indent += 1
                 pre += '  '
-            print(pre + f"Group #{node.group_index}")
+            if node.counted_group:
+                print(pre + f"Group #{node.group_index}")
+            else:
+                print(pre + "Group")
             self.print_ast(node.node, indent+1)
         elif isinstance(node, BackRef):
             print(pre + f"BackRef -> group {node.group_num}")
@@ -448,11 +456,12 @@ class AST:
     def makeCFG(self, root):
         if isinstance(root, Group):
             rules = self.makeCFG(root.node)
+            group_symbol = 'G' if root.counted_group else 'N'
             if root.stared:
                 for i in range(len(rules)):
-                    rules.append(rules[i] + [f'G{root.group_index}'])
-            self.CFG[f'G{root.group_index}'] =  rules
-            return [[f'G{root.group_index}']]
+                    rules.append(rules[i] + [f'{group_symbol}{root.group_index}'])
+            self.CFG[f'{group_symbol}{root.group_index}'] =  rules
+            return [[f'{group_symbol}{root.group_index}']]
         elif isinstance(root, Concat):
             leftPart = self.makeCFG(root.left)
             rightPart = self.makeCFG(root.right)
